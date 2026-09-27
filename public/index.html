@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<meta name="theme-color" content="#141218">
+	<meta property="og:site_name" content="YAML Translator">
+	<meta property="og:title" content="YAML Translator">
+	<meta property="og:description" content="Simple webapp for translating YAML localization files for Hachimi Edge, with offline support.">
+	<meta property="og:type" content="website">
+	<meta property="og:url" content="https://hachimi-edge.github.io/ymltl">
+	<meta property="og:image" content="https://hachimi-edge.github.io/ymltl/icons/android-chrome-512x512.png">
+	<meta name="twitter:card" content="summary">
+
+	<title>YAML Translator</title>
+	<link rel="manifest" href="manifest.json">
+
+	<link rel="apple-touch-icon" sizes="180x180" href="icons/apple-touch-icon.png">
+	<link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32x32.png">
+	<link rel="icon" type="image/png" sizes="16x16" href="icons/favicon-16x16.png">
+
+	<link rel="stylesheet" href="skeleton.min.css">
+	<link rel="stylesheet" href="font-awesome-4.7.0/css/font-awesome.min.css">
+	<link rel="stylesheet" href="style.css">
+
+	<script src="yaml.min.js"></script>
+	<script defer src="alpinejs.min.js"></script>
+</head>
+<body x-data="translatorApp()">
+
+	<div class="container">
+
+		<div class="app-bar">
+			<div>
+				<h5 class="app-title">YAML Translator</h5>
+				<p class="file-label" x-cloak x-show="items.length > 0" x-text="sessionFilesLabel"></p>
+				<p class="status" x-text="statusText"></p>
+			</div>
+		</div>
+		<hr>
+
+		<div x-show="items.length === 0">
+			<div class="row">
+				<div class="twelve columns">
+					<h6 class="step-title">Step 1: Master YAML File (Required)</h6>
+					<label for="master-file">Source Reference</label>
+					<input class="u-full-width" type="file" id="master-file" accept=".yml,.yaml" @change="handleMasterFile($event)">
+					<p class="file-hint" x-text="masterFileLabel"></p>
+				</div>
+			</div>
+			<div class="row">
+				<div class="twelve columns">
+					<h6 class="step-title">Step 2: TL YAML File (Optional)</h6>
+					<label for="tl-file">Target Translation (can be empty or partially translated)</label>
+					<input class="u-full-width" type="file" id="tl-file" accept=".yml,.yaml" @change="handleTlFile($event)">
+					<p class="file-hint" x-text="tlFileLabel"></p>
+				</div>
+			</div>
+			<div class="row">
+				<div class="twelve columns">
+					<button class="button button-primary u-full-width" @click="startTranslating()" :disabled="!hasMasterFile">
+						Start Translating
+					</button>
+				</div>
+			</div>
+		</div>
+
+		<div x-cloak x-show="items.length > 0">
+			<div class="toolbar">
+				<div class="toolbar-row">
+					<button class="button button-sm" @click="openNav()" x-text="navButtonLabel"></button>
+				</div>
+				<div class="toolbar-row">
+					<button class="button button-sm button-primary" @click="exportYAML()">Export</button>
+					<button class="button button-sm" @click="visualSource = !visualSource" x-text="viewToggleLabel"></button>
+					<button class="button button-sm button-error" @click="resetWorkspace()">Reset</button>
+				</div>
+			</div>
+
+			<template x-if="visibleItem">
+				<div>
+					<div class="entry-nav">
+						<button class="button button-sm" @click="prevKey()" :disabled="!hasPrevKey">&laquo; Prev</button>
+						<button class="button button-sm" @click="nextKey()" :disabled="!hasNextKey">Next &raquo;</button>
+					</div>
+					<p class="entry-path">
+						<code x-text="visibleItem.path"></code>
+					</p>
+					<p class="status" x-text="keyPositionLabel"></p>
+
+					<label>Source Text</label>
+					<blockquote x-show="visualSource" x-html="formatDisplay(visibleItem.master)"></blockquote>
+					<blockquote x-show="!visualSource" x-text="encodeFA(visibleItem.master)"></blockquote>
+
+					<label>Target Translation</label>
+					<textarea class="u-full-width" :value="encodeFA(visibleItem.target)" placeholder="Enter translation..." @blur="commitTarget(visibleItem, $event)"></textarea>
+					<p class="warning" x-show="hasMissingTokens(visibleItem)">
+						Warning: missing placeholder tokens from the source string.
+					</p>
+				</div>
+			</template>
+		</div>
+	</div>
+
+	<div class="nav-backdrop" x-cloak x-show="navOpen" @click="closeNav()"></div>
+	<template x-if="navOpen">
+		<div class="nav-panel" @keydown.escape="closeNav()">
+			<label for="nav-search">Search keys or text</label>
+			<input class="u-full-width" type="search" id="nav-search" placeholder="e.g. button.submit" x-model="navSearch" @input="navPage = 1" x-ref="navSearch">
+			<div class="toolbar-row">
+				<button class="button button-sm" :class="filterClassAll" @click="setFilterAll()" x-text="buttonLabelAll"></button>
+				<button class="button button-sm" :class="filterClassMissing" @click="setFilterMissing()" x-text="buttonLabelMissing"></button>
+				<button class="button button-sm" :class="filterClassDone" @click="setFilterDone()" x-text="buttonLabelDone"></button>
+			</div>
+			<p class="status" x-text="navCountLabel"></p>
+			<div class="nav-pagination" x-show="navPageCount > 1">
+				<button class="button button-sm" @click="prevNavPage()" :disabled="navPageClamped <= 1">&lsaquo; Prev</button>
+				<template x-for="(page, index) in navPages" :key="index">
+					<button class="button button-sm" :class="page === navPageClamped ? 'button-primary' : ''" :disabled="page === 'gap'" @click="setNavPage(page)" x-text="page === 'gap' ? '...' : page"></button>
+				</template>
+				<button class="button button-sm" @click="nextNavPage()" :disabled="navPageClamped >= navPageCount">Next &rsaquo;</button>
+			</div>
+			<div class="nav-list" x-ref="navList">
+				<template x-for="entry in navItems" :key="entry.path">
+					<a href="#" class="nav-item" :class="entry.path === currentPath ? 'nav-item-active' : ''" @click.prevent="selectKey(entry.path)" x-text="entry.path"></a>
+				</template>
+				<p class="status" x-show="navItems.length === 0">No keys match your search.</p>
+			</div>
+			<button class="button u-full-width" @click="closeNav()">Close</button>
+		</div>
+	</template>
+
+	<div class="nav-backdrop" x-cloak x-show="busy"></div>
+	<div class="busy-panel" x-cloak x-show="busy">
+		<p class="status">Loading...</p>
+	</div>
+
+	<script src="main.js"></script>
+</body>
+</html>
